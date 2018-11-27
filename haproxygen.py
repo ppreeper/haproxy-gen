@@ -110,6 +110,19 @@ def section_defaults(configout):
     f.close()
 
 
+def section_stats(configout):
+    g = "listen stats"
+    g += "\n\tbind :9000"
+    g += "\n\tstats enable"
+    g += "\n\tstats uri /"
+    g += "\n\tstats auth admin:password"
+    g += "\n"
+    g += "\n"
+    f = open(configout, 'a+')
+    f.write(g)
+    f.close()
+
+
 def initdb():
     stmt = "DROP TABLE IF EXISTS haproxy"
     c.execute(stmt)
@@ -318,6 +331,7 @@ def main():
     section_global(configout)
     section_defaults(configout)
     orderlist(getprotocols(), configout)
+    section_stats(configout)
 
 
 if __name__ == "__main__":
