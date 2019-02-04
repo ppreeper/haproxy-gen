@@ -31,7 +31,6 @@ def cleanfile(configfile):
     stmt = "SELECT distinct domain,hostname,hostaddr,protocol,inport,outport"
     stmt += "\nFROM haproxy"
     stmt += "\nORDER BY domain,hostaddr,hostname,protocol,inport,outport"
-    stmt = "select * from haproxy"
     hosts = c.execute(stmt)
     for host in hosts:
         # print(host)
