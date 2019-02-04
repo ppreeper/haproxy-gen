@@ -28,17 +28,30 @@ def cleanfile(configfile):
     o = open(configfile+"tmp", 'w')
     o.write(fline)
     f.close()
-    stmt = "SELECT distinct domain,hostname,hostaddr,protocol,port"
+    stmt = "SELECT distinct domain,hostname,hostaddr,protocol,inport,outport"
     stmt += "\nFROM haproxy"
-    stmt += "\nORDER BY domain,hostaddr,hostname,protocol,port"
+    stmt += "\nORDER BY domain,hostaddr,hostname,protocol,inport,outport"
+    stmt = "select * from haproxy"
     hosts = c.execute(stmt)
     for host in hosts:
         # print(host)
-        h = "\"%s\";" % host[0]
-        h += "\"%s\";" % host[1]
-        h += "\"%s\";" % host[2]
-        h += "\"%s\";" % host[3]
-        h += "\"%s\"\n" % host[4]
+        h = "\"%s\"" % host[0]
+        h += ";\"%s\"" % host[1]
+        h += ";\"%s\"" % host[2]
+        h += ";\"%s\"" % host[3]
+        if host[3] == "http" and host[4] == "":
+            h += ";\"80\""
+        elif host[3] == "https" and host[4] == "":
+            h += ";\"443\""
+        else:
+            h += ";\"%s\"" % host[4]
+        if host[3] == "http" and host[5] == "":
+            h += ";\"80\""
+        elif host[3] == "https" and host[5] == "":
+            h += ";\"443\""
+        else:
+            h += ";\"%s\"" % host[5]
+        h += "\n"
         o.write(h)
     o.close()
     os.rename(configfile+"tmp", configfile)
@@ -66,16 +79,13 @@ def section_global(configout):
     g = "global"
     g += "\n\tlog /dev/log\tlocal0"
     g += "\n\tlog /dev/log\tlocal1 notice"
-    g += "\n\tchroot /var/lib/haproxy"
-    g += "\n\tstats socket /run/haproxy/admin.sock mode 600 level admin"
+    g += "\n\tstats socket /run/admin.sock mode 600 level admin"
     g += "\n\tstats timeout 30s"
-    g += "\n\tuser haproxy"
-    g += "\n\tgroup haproxy"
     g += "\n\tdaemon"
     g += "\n"
     g += "\n\t# Default SSL material locations"
-    g += "\n\tca-base /etc/ssl/certs"
-    g += "\n\tcrt-base /etc/ssl/private"
+    g += "\n\tca-base /etc/ssl"
+    g += "\n\tcrt-base /etc/ssl"
     g += "\n"
     g += "\n\t# Default ciphers"
     g += "\n\tssl-default-bind-ciphers "+gen_ssl_ciphers()
@@ -96,13 +106,6 @@ def section_defaults(configout):
     d += "\n\ttimeout connect\t5000"
     d += "\n\ttimeout client\t50000"
     d += "\n\ttimeout server\t50000"
-    d += "\n\terrorfile 400 /etc/haproxy/errors/400.http"
-    d += "\n\terrorfile 403 /etc/haproxy/errors/403.http"
-    d += "\n\terrorfile 408 /etc/haproxy/errors/408.http"
-    d += "\n\terrorfile 500 /etc/haproxy/errors/500.http"
-    d += "\n\terrorfile 502 /etc/haproxy/errors/502.http"
-    d += "\n\terrorfile 503 /etc/haproxy/errors/503.http"
-    d += "\n\terrorfile 504 /etc/haproxy/errors/504.http"
     d += "\n"
     d += "\n"
     f = open(configout, 'a+')
@@ -124,7 +127,7 @@ def section_stats(configout):
 
 
 def initdb():
-    stmt = "DROP TABLE IF EXISTS haproxy"
+    stmt = "DROP TABLE IF EXISTS haproxy;"
     c.execute(stmt)
     conn.commit()
     stmt = "CREATE TABLE haproxy ("
@@ -132,7 +135,8 @@ def initdb():
     stmt += "hostname text,"
     stmt += "hostaddr text,"
     stmt += "protocol text,"
-    stmt += "port text"
+    stmt += "inport text,"
+    stmt += "outport text"
     stmt += ");"
     c.execute(stmt)
     conn.commit()
@@ -144,49 +148,60 @@ def loaddb(configfile):
         next(reader, None)
         for row in reader:
             # print(row, len(row))
-            if len(row) == 5:
+            if len(row) == 6:
                 stmt = "INSERT INTO haproxy VALUES ("
                 stmt += "'%s'," % row[0]
                 stmt += "'%s'," % row[1]
                 stmt += "'%s'," % row[2]
                 stmt += "'%s'," % row[3]
-                stmt += "'%s'" % row[4]
-                stmt += ")"
+                stmt += "'%s'," % row[4]
+                stmt += "'%s'" % row[5]
+                stmt += ");"
+                # print(stmt)
                 c.execute(stmt)
                 conn.commit()
 
 
 def getprotocols():
     protos = []
-    stmt = "SELECT distinct protocol, port FROM haproxy;"
+    stmt = "SELECT distinct protocol, inport, outport FROM haproxy;"
     for protocol in c.execute(stmt):
         protos.append(protocol)
-
     stmt = "CREATE TABLE protoports ("
     stmt += "protocol text,"
-    stmt += "port text"
+    stmt += "inport text,"
+    stmt += "outport text"
     stmt += ");"
     c.execute(stmt)
     conn.commit()
     for p in protos:
-        if p[0] == "http" and (p[1] == ""or p[1] == "80"):
-            c.execute("INSERT INTO protoports VALUES ('http', '')")
-            conn.commit()
-        elif p[0] == "http" and (p[1] != ""or p[1] != "80"):
-            c.execute("INSERT INTO protoports VALUES ('http', '%s')" % p[1])
-            conn.commit()
-        elif p[0] == "https" and (p[1] == "" or p[1] == "443"):
-            c.execute("INSERT INTO protoports VALUES ('https', '')")
-            conn.commit()
-        elif p[0] == "https" and (p[1] != "" or p[1] != "443"):
-            c.execute("INSERT INTO protoports VALUES ('https', '%s')" % p[1])
-            conn.commit()
-
-    stmt = "SELECT distinct protocol, port FROM protoports;"
+        # print(p)
+        if p[0] == "http":
+            if p[1] == "":
+                if p[2] == "":
+                    c.execute("INSERT INTO protoports VALUES ('%s', '80', '80')" % (p[0]))
+                    conn.commit()
+                else:
+                    c.execute("INSERT INTO protoports VALUES ('%s', '80', '%s')" % (p[0], p[2]))
+                    conn.commit()
+            else:
+                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')"% (p[0], p[1],p[2]))
+                conn.commit()
+        elif p[0] == "https":
+            if p[1] == "":
+                if p[2] == "":
+                    c.execute("INSERT INTO protoports VALUES ('%s', '443', '443')" % (p[0]))
+                    conn.commit()
+                else:
+                    c.execute("INSERT INTO protoports VALUES ('%s', '443', '%s')" % (p[0], p[2]))
+                    conn.commit()
+            else:
+                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')"% (p[0], p[1],p[2]))
+                conn.commit()
+    stmt = "SELECT distinct protocol, inport FROM protoports;"
     protocols = []
     for protocol in c.execute(stmt):
         protocols.append(protocol)
-
     c.execute("DROP TABLE protoports")
     return protocols
 
@@ -194,38 +209,21 @@ def getprotocols():
 def orderlist(protocols, configout):
     for protocol in protocols:
         o = "frontend "
-        if protocol[1] != '':
-            o += protocol[0]+"-"+protocol[1]+"-in"
-            o += "\n\tbind *:"+protocol[1]
-            if protocol[0] == "https":
-                o += "\n\tmode tcp"
-                o += "\n\tacl sslv3 req.ssl_ver 3"
-                o += "\n\ttcp-request inspect-delay 2s"
-                o += "\n\ttcp-request content reject if sslv3"
-        else:
-            o += protocol[0]+"-in"
-            if protocol[0] == "http":
-                o += "\n\tbind *:80"
-            elif protocol[0] == "https":
-                o += "\n\tbind *:443"
-                o += "\n\tmode tcp"
-                o += "\n\tacl sslv3 req.ssl_ver 3"
-                o += "\n\ttcp-request inspect-delay 2s"
-                o += "\n\ttcp-request content reject if sslv3"
-        stmt = "SELECT domain,hostname,hostaddr FROM haproxy"
-        if protocol[1] == '':
-            if protocol[0] == "http":
-                stmt += "\nWHERE protocol = 'http'"
-                stmt += "\nAND port in ('','80')"
-            elif protocol[0] == "https":
-                stmt += "\nWHERE protocol = 'https'"
-                stmt += "\nAND port in ('','443')"
-        else:
-            if protocol[0] == "http":
-                stmt += "\nWHERE protocol = 'http'"
-            elif protocol[0] == "https":
-                stmt += "\nWHERE protocol = 'https'"
-            stmt += "\nAND port in ('%s')" % (protocol[1])
+        o += protocol[0]+"-"+protocol[1]+"-in"
+        if protocol[0] == "http":
+            o += "\n\tbind *:80"
+        elif protocol[0] == "https":
+            o += "\n\tbind *:443"
+            o += "\n\tmode tcp"
+            o += "\n\tacl sslv3 req.ssl_ver 3"
+            o += "\n\ttcp-request inspect-delay 2s"
+            o += "\n\ttcp-request content reject if sslv3"
+        stmt = "SELECT domain, hostname, hostaddr FROM haproxy"
+        if protocol[0] == "http":
+            stmt += "\nWHERE protocol = 'http'"
+        elif protocol[0] == "https":
+            stmt += "\nWHERE protocol = 'https'"
+        stmt += "\nAND inport in ('%s')" % (protocol[1])
         stmt += "\nORDER BY domain,hostaddr,hostname"
         hosts = c.execute(stmt)
         for h in hosts:
@@ -262,52 +260,29 @@ def orderlist(protocols, configout):
         f.close()
     for protocol in protocols:
         o = "# "
-        if protocol[1] != '':
-            o += protocol[0]+"-"+protocol[1]
-        else:
-            o += protocol[0]
-        stmt = "SELECT domain,hostname,hostaddr FROM haproxy"
-        if protocol[1] == '':
-            if protocol[0] == "http":
-                stmt += "\nWHERE protocol = 'http'"
-                stmt += "\nAND port in ('','80')"
-            elif protocol[0] == "https":
-                stmt += "\nWHERE protocol = 'https'"
-                stmt += "\nAND port in ('','443')"
-        else:
-            if protocol[0] == "http":
-                stmt += "\nWHERE protocol = 'http'"
-            elif protocol[0] == "https":
-                stmt += "\nWHERE protocol = 'https'"
-            stmt += "\nAND port in ('%s')" % (protocol[1])
-        stmt += "\nORDER BY domain,hostaddr,hostname"
+        o += protocol[0]+"-"+protocol[1]
+        stmt = "SELECT domain,hostname,hostaddr,inport,outport FROM haproxy"
+        if protocol[0] == "http":
+            stmt += "\nWHERE protocol = 'http'"
+        elif protocol[0] == "https":
+            stmt += "\nWHERE protocol = 'https'"
+        stmt += "\nAND inport in ('%s')" % (protocol[1])
+        stmt += "\nORDER BY domain,hostaddr,hostname,inport,outport"
         hosts = c.execute(stmt)
         for h in hosts:
             hname = h[1]+"."+h[0]
             if h[1] == "":
                 hname = h[0]
-            a = ""
-            if protocol[1] != '':
-                a = "-"+protocol[1]
+            a = "-"+protocol[1]
             o += "\nbackend %s%s_%s" % (protocol[0], a, hname)
-            if protocol[1] == "":
-                if protocol[0] == "http":
-                    o += "\n\toption httpclose"
-                    o += "\n\toption forwardfor"
-                    o += "\n\tserver app1 %s:80 check" % (h[2])
-                elif protocol[0] == "https":
-                    o += "\n\tmode tcp"
-                    o += "\n\tserver app1 %s:443 check" % (h[2])
-            else:
-                if protocol[0] == "http":
-                    o += "\n\toption httpclose"
-                    o += "\n\toption forwardfor"
-                    o += "\n\tserver app1 %s:%s check" % (h[2], protocol[1])
-                elif protocol[0] == "https":
-                    o += "\n\tmode tcp"
-                    o += "\n\tserver app1 %s:%s check" % (h[2], protocol[1])
+            if protocol[0] == "http":
+                o += "\n\toption httpclose"
+                o += "\n\toption forwardfor"
+                o += "\n\tserver app1 %s:%s check" % (h[2], h[4])
+            elif protocol[0] == "https":
+                o += "\n\tmode tcp"
+                o += "\n\tserver app1 %s:%s check" % (h[2], h[4])
         o += "\n\n"
-        # print(t)
         f = open(configout, 'a+')
         f.write(o)
         f.close()
