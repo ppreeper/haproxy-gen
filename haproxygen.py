@@ -78,13 +78,16 @@ def section_global(configout):
     g = "global"
     g += "\n\tlog /dev/log\tlocal0"
     g += "\n\tlog /dev/log\tlocal1 notice"
-    g += "\n\tstats socket /run/admin.sock mode 600 level admin"
+    g += "\n\tchroot /var/lib/haproxy"
+    g += "\n\tstats socket /run/haproxy/admin.sock mode 600 level admin"
     g += "\n\tstats timeout 30s"
+    g += "\n\tuser haproxy"
+    g += "\n\tgroup haproxy"
     g += "\n\tdaemon"
     g += "\n"
     g += "\n\t# Default SSL material locations"
-    g += "\n\tca-base /etc/ssl"
-    g += "\n\tcrt-base /etc/ssl"
+    g += "\n\tca-base /etc/ssl/certs"
+    g += "\n\tcrt-base /etc/ssl/private"
     g += "\n"
     g += "\n\t# Default ciphers"
     g += "\n\tssl-default-bind-ciphers "+gen_ssl_ciphers()
@@ -105,6 +108,13 @@ def section_defaults(configout):
     d += "\n\ttimeout connect\t5000"
     d += "\n\ttimeout client\t50000"
     d += "\n\ttimeout server\t50000"
+    d += "\n\terrorfile 400 /etc/haproxy/errors/400.http"
+    d += "\n\terrorfile 403 /etc/haproxy/errors/403.http"
+    d += "\n\terrorfile 408 /etc/haproxy/errors/408.http"
+    d += "\n\terrorfile 500 /etc/haproxy/errors/500.http"
+    d += "\n\terrorfile 502 /etc/haproxy/errors/502.http"
+    d += "\n\terrorfile 503 /etc/haproxy/errors/503.http"
+    d += "\n\terrorfile 504 /etc/haproxy/errors/504.http"
     d += "\n"
     d += "\n"
     f = open(configout, 'a+')
@@ -178,24 +188,30 @@ def getprotocols():
         if p[0] == "http":
             if p[1] == "":
                 if p[2] == "":
-                    c.execute("INSERT INTO protoports VALUES ('%s', '80', '80')" % (p[0]))
+                    c.execute(
+                        "INSERT INTO protoports VALUES ('%s', '80', '80')" % (p[0]))
                     conn.commit()
                 else:
-                    c.execute("INSERT INTO protoports VALUES ('%s', '80', '%s')" % (p[0], p[2]))
+                    c.execute(
+                        "INSERT INTO protoports VALUES ('%s', '80', '%s')" % (p[0], p[2]))
                     conn.commit()
             else:
-                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')"% (p[0], p[1],p[2]))
+                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')" % (
+                    p[0], p[1], p[2]))
                 conn.commit()
         elif p[0] == "https":
             if p[1] == "":
                 if p[2] == "":
-                    c.execute("INSERT INTO protoports VALUES ('%s', '443', '443')" % (p[0]))
+                    c.execute(
+                        "INSERT INTO protoports VALUES ('%s', '443', '443')" % (p[0]))
                     conn.commit()
                 else:
-                    c.execute("INSERT INTO protoports VALUES ('%s', '443', '%s')" % (p[0], p[2]))
+                    c.execute(
+                        "INSERT INTO protoports VALUES ('%s', '443', '%s')" % (p[0], p[2]))
                     conn.commit()
             else:
-                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')"% (p[0], p[1],p[2]))
+                c.execute("INSERT INTO protoports VALUES ('%s', '%s','%s')" % (
+                    p[0], p[1], p[2]))
                 conn.commit()
     stmt = "SELECT distinct protocol, inport FROM protoports;"
     protocols = []
@@ -210,9 +226,9 @@ def orderlist(protocols, configout):
         o = "frontend "
         o += protocol[0]+"-"+protocol[1]+"-in"
         if protocol[0] == "http":
-            o += "\n\tbind *:80"
+            o += "\n\tbind *:"+protocol[1]
         elif protocol[0] == "https":
-            o += "\n\tbind *:443"
+            o += "\n\tbind *:"+protocol[1]
             o += "\n\tmode tcp"
             o += "\n\tacl sslv3 req.ssl_ver 3"
             o += "\n\ttcp-request inspect-delay 2s"
